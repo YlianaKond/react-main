@@ -377,7 +377,6 @@ function AddPetPage() {
             if (response.ok) {
                 console.log('Объявление успешно добавлено!');
                 setSuccess(true);
-                
                 // Перенаправляем после успешного добавления
                 setTimeout(() => {
                     navigate('/profile?refresh=true');
