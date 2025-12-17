@@ -1,8 +1,6 @@
-// src/pages/AddPetPage.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Header from '../components/header';
-import Footer from '../components/footer';
+import { saveUserData } from "../utils/auth";
 import '../components/css/style.css';
 
 function AddPetPage() {
@@ -29,7 +27,6 @@ function AddPetPage() {
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
     
-    const API_BASE_URL = 'https://pets.сделай.site';
     const districts = [
         'Адмиралтейский',
         'Василеостровский',
@@ -51,18 +48,23 @@ function AddPetPage() {
         'Центральный'
     ];
 
-    // Проверка авторизации и автозаполнение данных
+    // Проверка авторизации
     useEffect(() => {
         const token = localStorage.getItem('auth_token');
         const email = localStorage.getItem('user_email');
         
         if (token) {
             setIsAuthenticated(true);
-            setUserEmail(email || '');
-            
-            // Автозаполнение email для авторизованных пользователей
             if (email) {
-                setFormData(prev => ({ ...prev, email }));
+                setUserEmail(email);
+                // Автозаполнение для авторизованных пользователей
+                const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
+                setFormData(prev => ({
+                    ...prev,
+                    name: userData.name || '',
+                    phone: userData.phone || '',
+                    email: userData.email || email || ''
+                }));
             }
         }
     }, []);
@@ -101,6 +103,11 @@ function AddPetPage() {
         // Проверка фото1
         if (!images[0]) {
             newErrors.photo1 = ['Первое фото обязательно'];
+        } else {
+            // Проверяем тип файла - ТОЛЬКО PNG
+            if (images[0].type !== 'image/png') {
+                newErrors.photo1 = ['Файл должен быть в формате PNG'];
+            }
         }
 
         // Проверка паролей при регистрации
@@ -164,12 +171,11 @@ function AddPetPage() {
         
         if (!file) return;
         
-        // Проверяем формат файла
-        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-        if (!allowedTypes.includes(file.type)) {
+        // ВАЖНОЕ ИЗМЕНЕНИЕ: Проверяем ТОЛЬКО PNG формат
+        if (file.type !== 'image/png') {
             setErrors(prev => ({
                 ...prev,
-                [`photo${index + 1}`]: ['Формат файла должен быть JPG, JPEG, PNG или WebP']
+                [`photo${index + 1}`]: ['Файл должен быть в формате PNG']
             }));
             return;
         }
@@ -239,49 +245,124 @@ function AddPetPage() {
         setErrors({});
 
         try {
+            // ПОДГОТОВКА ДАННЫХ
+            // Если пользователь не авторизован и хочет зарегистрироваться
+            let token = localStorage.getItem('auth_token');
+            
+            if (!isAuthenticated && formData.register) {
+                // 1. Сначала регистрируем пользователя
+                const registerData = {
+                    name: formData.name.trim(),
+                    phone: formData.phone.replace(/[^\d+]/g, ''),
+                    email: formData.email.trim(),
+                    password: formData.password,
+                    password_confirmation: formData.password_confirmation,
+                    confirm: formData.confirm ? 1 : 0
+                };
+
+                console.log('Регистрация пользователя:', registerData);
+
+                const registerResponse = await fetch('https://pets.сделай.site/api/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify(registerData)
+                });
+
+                if (registerResponse.status !== 204) {
+                    const errorData = await registerResponse.json();
+                    throw new Error(`Ошибка регистрации: ${errorData.error?.message || 'Неизвестная ошибка'}`);
+                }
+
+                // 2. Автоматически входим после регистрации
+                const loginResponse = await fetch('https://pets.сделай.site/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        email: formData.email.trim(),
+                        password: formData.password
+                    })
+                });
+
+                if (!loginResponse.ok) {
+                    throw new Error('Ошибка автоматического входа после регистрации');
+                }
+
+                const loginData = await loginResponse.json();
+                token = loginData.data?.token || loginData.token;
+                
+                if (token) {
+                    // Сохраняем данные пользователя
+                    saveUserData({
+                        token: token,
+                        email: formData.email.trim(),
+                        name: formData.name.trim(),
+                        phone: formData.phone.replace(/[^\d+]/g, '')
+                    });
+                    
+                    setIsAuthenticated(true);
+                    setUserEmail(formData.email.trim());
+                }
+            }
+
+            // 3. ДОБАВЛЕНИЕ ОБЪЯВЛЕНИЯ
+            // Теперь добавляем объявление (после возможной регистрации)
             const formDataToSend = new FormData();
             
-            // Добавляем все обязательные поля
-            formDataToSend.append('name', formData.name.trim());
-            formDataToSend.append('phone', formData.phone.replace(/[^\d+]/g, ''));
-            formDataToSend.append('email', formData.email.trim());
+            // Добавляем поля для животного (согласно ТЗ)
             formDataToSend.append('kind', formData.kind.trim());
             formDataToSend.append('district', formData.district);
             formDataToSend.append('description', formData.description.trim());
             
+            // ВАЖНОЕ ИЗМЕНЕНИЕ: Добавляем контактные данные как отдельные поля
+            // (API может ожидать их в теле запроса, а не как параметры формы)
+            formDataToSend.append('name', formData.name.trim());
+            formDataToSend.append('phone', formData.phone.replace(/[^\d+]/g, ''));
+            formDataToSend.append('email', formData.email.trim());
+            
+            // ВАЖНОЕ ИЗМЕНЕНИЕ: confirm должен быть integer 0 или 1
+            formDataToSend.append('confirm', formData.confirm ? '1' : '0');
+            
             // Добавляем необязательные поля если они есть
-            if (formData.mark) {
+            if (formData.mark && formData.mark.trim()) {
                 formDataToSend.append('mark', formData.mark.trim());
             }
             
-            // Добавляем файлы
-            if (images[0]) formDataToSend.append('photo1', images[0]);
-            if (images[1]) formDataToSend.append('photo2', images[1]);
-            if (images[2]) formDataToSend.append('photo3', images[2]);
-            
-            // Добавляем поля для регистрации если нужно
-            if (formData.register || (!isAuthenticated && showPasswordFields)) {
-                formDataToSend.append('password', formData.password);
-                formDataToSend.append('password_confirmation', formData.password_confirmation);
-                formDataToSend.append('register', formData.register ? '1' : '0');
+            // Добавляем файлы (ТОЛЬКО PNG)
+            if (images[0]) {
+                // Проверяем что это PNG
+                if (images[0].type === 'image/png') {
+                    formDataToSend.append('photo1', images[0]);
+                } else {
+                    throw new Error('Фото 1 должно быть в формате PNG');
+                }
             }
             
-            formDataToSend.append('confirm', formData.confirm ? '1' : '0');
-
-            // КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Добавляем токен авторизации
-            const token = localStorage.getItem('auth_token');
+            if (images[1] && images[1].type === 'image/png') {
+                formDataToSend.append('photo2', images[1]);
+            }
             
-            console.log('Отправка запроса на:', `${API_BASE_URL}/api/pets/new`);
+            if (images[2] && images[2].type === 'image/png') {
+                formDataToSend.append('photo3', images[2]);
+            }
+
+            console.log('Отправка объявления на:', 'https://pets.сделай.site/api/pets');
             console.log('Токен авторизации:', token ? 'Присутствует' : 'Отсутствует');
-            
-            // Для отладки: покажем данные формы
+
+            // Для отладки: показываем данные формы
+            console.log('Данные FormData:');
             for (let [key, value] of formDataToSend.entries()) {
-                console.log(`${key}:`, value instanceof File ? `File: ${value.name}` : value);
+                console.log(`${key}:`, value instanceof File ? `File: ${value.name} (${value.type})` : value);
             }
 
-            const response = await fetch(`${API_BASE_URL}/api/pets/new`, {
+            // Отправляем запрос на добавление объявления
+            const response = await fetch('https://pets.сделай.site/api/pets', {
                 method: 'POST',
-                // КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Добавляем заголовок Authorization с токеном
                 headers: token ? {
                     'Authorization': `Bearer ${token}`
                 } : {},
@@ -290,14 +371,8 @@ function AddPetPage() {
 
             console.log('Статус ответа:', response.status);
 
-            // Пытаемся прочитать ответ
-            let responseText = '';
-            try {
-                responseText = await response.text();
-                console.log('Текст ответа:', responseText);
-            } catch (textError) {
-                console.log('Не удалось прочитать текст ответа');
-            }
+            const responseText = await response.text();
+            console.log('Текст ответа:', responseText);
 
             if (response.ok) {
                 console.log('Объявление успешно добавлено!');
@@ -305,14 +380,13 @@ function AddPetPage() {
                 
                 // Перенаправляем после успешного добавления
                 setTimeout(() => {
-                    navigate('/search');
+                    navigate('/profile?refresh=true');
                 }, 2000);
                 
             } else if (response.status === 401) {
                 // Не авторизован
-                console.log('Ошибка 401: Неавторизованный доступ');
                 localStorage.removeItem('auth_token');
-                localStorage.removeItem('user_email');
+                localStorage.removeItem('user_data');
                 setIsAuthenticated(false);
                 
                 setErrors({ 
@@ -328,7 +402,17 @@ function AddPetPage() {
                 try {
                     const errorData = JSON.parse(responseText);
                     console.log('Данные ошибок:', errorData);
-                    setErrors(errorData.errors || errorData.error?.errors || {});
+                    
+                    // Отображаем ошибки сервера
+                    if (errorData.errors) {
+                        setErrors(errorData.errors);
+                    } else if (errorData.error?.errors) {
+                        setErrors(errorData.error.errors);
+                    } else {
+                        setErrors({ 
+                            general: ['Ошибка валидации данных'] 
+                        });
+                    }
                 } catch (parseError) {
                     setErrors({ 
                         general: ['Ошибка валидации данных'] 
@@ -337,14 +421,14 @@ function AddPetPage() {
                 
             } else {
                 setErrors({ 
-                    general: [`Ошибка сервера ${response.status}. Попробуйте позже.`] 
+                    general: [`Ошибка сервера ${response.status}: ${responseText || 'Попробуйте позже.'}`] 
                 });
             }
             
         } catch (error) {
             console.error('Ошибка при отправке формы:', error);
             setErrors({ 
-                general: ['Ошибка сети. Проверьте подключение к интернету.'] 
+                general: [error.message || 'Ошибка сети. Проверьте подключение к интернету.'] 
             });
         } finally {
             setLoading(false);
@@ -354,7 +438,6 @@ function AddPetPage() {
     if (success) {
         return (
             <div className="add-pet-page">
-                <Header />
                 <div className="container py-5">
                     <div className="row justify-content-center">
                         <div className="col-md-8">
@@ -368,18 +451,19 @@ function AddPetPage() {
                         </div>
                     </div>
                 </div>
-                <Footer />
             </div>
         );
     }
 
     return (
         <div className="add-pet-page">
-            
-            
             <section className="hero-section py-5 bg-light">
                 <div className="container">
                     <h1 className="display-4 fw-bold text-center mb-4">Добавить объявление о найденном животном</h1>
+                    <p className="text-center text-muted">
+                        <i className="bi bi-info-circle me-1"></i>
+                        <strong>Важно:</strong> Фотографии принимаются только в формате PNG
+                    </p>
                 </div>
             </section>
             
@@ -402,7 +486,7 @@ function AddPetPage() {
                                                 Вы авторизованы
                                             </h6>
                                             <p className="mb-0">
-                                                Вы вошли как <strong>{userEmail}</strong>. Поля имя, телефон и email заполнены автоматически, но вы можете их изменить.
+                                                Вы вошли как <strong>{userEmail}</strong>. Поля имя, телефон и email заполнены автоматически.
                                             </p>
                                         </div>
                                     ) : (
@@ -421,9 +505,20 @@ function AddPetPage() {
                                         <div className="alert alert-danger alert-dismissible fade show mb-4">
                                             <i className="bi bi-exclamation-triangle me-2"></i>
                                             {Array.isArray(errors.general) ? errors.general[0] : errors.general}
-                                            <button type="button" className="btn-close" onClick={() => setErrors({})}></button>
+                                            <button type="button" className="btn-close" onClick={() => setErrors(prev => ({ ...prev, general: undefined }))}></button>
                                         </div>
                                     )}
+
+                                    {/* Отображение ошибок сервера */}
+                                    {Object.keys(errors).map(key => (
+                                        key !== 'general' && errors[key] && (
+                                            <div key={key} className="alert alert-danger alert-dismissible fade show mb-2">
+                                                <i className="bi bi-exclamation-triangle me-2"></i>
+                                                <strong>{key}:</strong> {Array.isArray(errors[key]) ? errors[key][0] : errors[key]}
+                                                <button type="button" className="btn-close" onClick={() => setErrors(prev => ({ ...prev, [key]: undefined }))}></button>
+                                            </div>
+                                        )
+                                    ))}
 
                                     <form onSubmit={handleSubmit} encType="multipart/form-data">
                                         <h4 className="mb-3">
@@ -672,7 +767,8 @@ function AddPetPage() {
                                         
                                         <div className="mb-4">
                                             <label className="form-label">
-                                                Фотографии
+                                                Фотографии <span className="text-danger">*</span>
+                                                <small className="text-muted ms-2">(Только PNG формат)</small>
                                             </label>
                                             <div className="mb-3">
                                                 <label htmlFor="photo1" className="form-label">
@@ -684,7 +780,7 @@ function AddPetPage() {
                                                     id="photo1" 
                                                     name="photo1"
                                                     onChange={(e) => handleImageChange(e, 0)}
-                                                    accept=".jpg,.jpeg,.png,.webp" 
+                                                    accept=".png" // ТОЛЬКО PNG
                                                     required 
                                                     disabled={loading}
                                                 />
@@ -694,7 +790,7 @@ function AddPetPage() {
                                                     </div>
                                                 )}
                                                 <small className="form-text text-muted">
-                                                    Поддерживаемые форматы: JPG, JPEG, PNG, WebP (макс. 5MB)
+                                                    Только PNG формат (макс. 5MB)
                                                 </small>
                                             </div>
                                             
@@ -708,9 +804,12 @@ function AddPetPage() {
                                                     id="photo2" 
                                                     name="photo2"
                                                     onChange={(e) => handleImageChange(e, 1)}
-                                                    accept=".jpg,.jpeg,.png,.webp" 
+                                                    accept=".png" // ТОЛЬКО PNG
                                                     disabled={loading}
                                                 />
+                                                <small className="form-text text-muted">
+                                                    Только PNG формат (макс. 5MB)
+                                                </small>
                                             </div>
                                             
                                             <div className="mb-3">
@@ -723,9 +822,12 @@ function AddPetPage() {
                                                     id="photo3" 
                                                     name="photo3"
                                                     onChange={(e) => handleImageChange(e, 2)}
-                                                    accept=".jpg,.jpeg,.png,.webp" 
+                                                    accept=".png" // ТОЛЬКО PNG
                                                     disabled={loading}
                                                 />
+                                                <small className="form-text text-muted">
+                                                    Только PNG формат (макс. 5MB)
+                                                </small>
                                             </div>
 
                                             {/* Превью изображений */}
@@ -802,8 +904,6 @@ function AddPetPage() {
                     </div>
                 </div>
             </section>
-
-            <Footer />
         </div>
     );
 }

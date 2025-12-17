@@ -1,32 +1,23 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { saveUserData, findUserByEmail } from "../utils/auth";
 import "../components/css/style.css";
 
 function LoginPage() {
-  const [identifier, setIdentifier] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("user@user.ru");
+  const [password, setPassword] = useState("paSSword1");
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  
-  const API_BASE_URL = 'https://pets.сделай.site/api';
-
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const returnUrl = params.get('return');
-    if (returnUrl) {
-      // Можно сохранить returnUrl для редиректа после входа
-    }
-  }, [location]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setErrors({});
 
-    if (!identifier.trim()) {
-      setErrors({ identifier: ['Введите телефон или email'] });
+    if (!email.trim()) {
+      setErrors({ email: ['Введите email'] });
       setLoading(false);
       return;
     }
@@ -38,72 +29,101 @@ function LoginPage() {
     }
 
     try {
-      // Определяем тип идентификатора
-      const isEmail = identifier.includes('@');
-      const requestData = {
-        [isEmail ? 'email' : 'phone']: identifier,
-        password: password
-      };
-
-      const response = await fetch(`${API_BASE_URL}/login`, {
+      const response = await fetch('https://pets.сделай.site/api/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
-        body: JSON.stringify(requestData)
+        body: JSON.stringify({
+          email: email.trim(),
+          password: password
+        })
       });
 
-      console.log('Login response status:', response.status);
+      console.log('Статус ответа на вход:', response.status);
 
       if (response.ok) {
         const data = await response.json();
         const token = data.data?.token || data.token;
         
+        console.log('Полный ответ от сервера:', data);
+
         if (token) {
-          localStorage.setItem('auth_token', token);
-          localStorage.setItem('user_email', identifier);
+          // Пробуем найти пользователя по email в списке пользователей
+          let userInfo = null;
+          let userId = null;
           
-          console.log('Login successful, token saved');
+          try {
+            const usersResponse = await fetch('https://pets.сделай.site/api/users', {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Accept': 'application/json'
+              }
+            });
+
+            if (usersResponse.ok) {
+              const usersData = await usersResponse.json();
+              console.log('Список пользователей:', usersData);
+              
+              if (usersData.data?.users && Array.isArray(usersData.data.users)) {
+                const currentUser = usersData.data.users.find(u => u.email === email.trim());
+                if (currentUser) {
+                  userInfo = currentUser;
+                  userId = currentUser.id;
+                  console.log('Найден пользователь:', currentUser);
+                }
+              }
+            }
+          } catch (usersError) {
+            console.log('Не удалось получить список пользователей:', usersError);
+          }
+
+          // Сохраняем данные пользователя
+          const userDataToSave = {
+            token: token,
+            email: email.trim(),
+            name: userInfo?.name || email.split('@')[0],
+            phone: userInfo?.phone || '',
+            id: userId,
+            registrationDate: userInfo?.registrationDate || '',
+            ordersCount: userInfo?.ordersCount || 0,
+            petsCount: userInfo?.petsCount || 0
+          };
+
+          saveUserData(userDataToSave);
           
-          // Перенаправляем в профиль или на предыдущую страницу
+          console.log('Вход успешен, данные сохранены:', userDataToSave);
+          
+          // Перенаправляем
           const params = new URLSearchParams(location.search);
           const returnUrl = params.get('return');
-          navigate(returnUrl ? decodeURIComponent(returnUrl) : '/profile.html');
+          navigate(returnUrl ? decodeURIComponent(returnUrl) : '/profile');
         } else {
           setErrors({ 
             general: ['Неверный ответ от сервера'] 
           });
         }
-      } else if (response.status === 422 || response.status === 401) {
-        const data = await response.json();
-        console.log('Login error data:', data);
+      } else if (response.status === 401 || response.status === 422) {
+        const errorData = await response.json();
+        console.log('Ошибка входа:', errorData);
         setErrors({ 
-          general: ['Неверный телефон/email или пароль'],
-          password: ['Неверный пароль'] 
+          general: ['Неверный email или пароль']
         });
       } else {
+        const errorText = await response.text();
+        console.error('Ошибка сервера при входе:', errorText);
         setErrors({ 
-          general: ['Ошибка сервера'] 
+          general: ['Ошибка сервера. Попробуйте позже.'] 
         });
       }
     } catch (error) {
-      console.error('Login error:', error);
+      console.error('Ошибка сети при входе:', error);
       setErrors({ 
         general: ['Ошибка сети. Проверьте подключение к интернету.'] 
       });
     } finally {
       setLoading(false);
-    }
-  };
-
-  // Тестовые данные для быстрого входа
-  const handleTestLogin = (type) => {
-    if (type === 'phone') {
-      setIdentifier('89111234567');
-      setPassword('Password123');
-    } else {
-      setIdentifier('user@user.ru');
-      setPassword('paSSword1');
     }
   };
 
@@ -122,65 +142,50 @@ function LoginPage() {
                 <p className="text-muted">Войдите в свой аккаунт</p>
               </div>
 
-              {/* Тестовые данные */}
               <div className="alert alert-info mb-4">
                 <h6 className="alert-heading mb-2">
                   <i className="bi bi-info-circle me-2"></i>Тестовые данные:
                 </h6>
-                <div className="d-flex flex-column flex-sm-row gap-2">
-                  <button 
-                    className="btn btn-sm btn-outline-primary"
-                    onClick={() => handleTestLogin('phone')}
-                    disabled={loading}
-                    type="button"
-                  >
-                    <i className="bi bi-phone me-1"></i>Телефон
-                  </button>
-                  <button 
-                    className="btn btn-sm btn-outline-primary"
-                    onClick={() => handleTestLogin('email')}
-                    disabled={loading}
-                    type="button"
-                  >
-                    <i className="bi bi-envelope me-1"></i>Email
-                  </button>
-                </div>
+                <small>
+                  Email: user@user.ru<br />
+                  Пароль: paSSword1
+                </small>
               </div>
 
               {errors.general && (
                 <div className="alert alert-danger alert-dismissible fade show">
                   <i className="bi bi-exclamation-triangle me-2"></i>
-                  {errors.general[0] || errors.general}
+                  {Array.isArray(errors.general) ? errors.general[0] : errors.general}
                   <button type="button" className="btn-close" onClick={() => setErrors({})}></button>
                 </div>
               )}
 
               <form onSubmit={handleSubmit}>
                 <div className="mb-3">
-                  <label htmlFor="identifier" className="form-label fw-semibold">
-                    <i className="bi bi-person-circle me-1"></i>Телефон или Email
+                  <label htmlFor="email" className="form-label fw-semibold">
+                    <i className="bi bi-envelope me-1"></i>Email
                   </label>
                   <div className="input-group">
                     <span className="input-group-text">
-                      <i className="bi bi-telephone-fill"></i>
+                      <i className="bi bi-envelope-fill"></i>
                     </span>
                     <input
-                      type="text"
-                      className={`form-control ${errors.identifier ? 'is-invalid' : ''}`}
-                      id="identifier"
-                      value={identifier}
+                      type="email"
+                      className={`form-control ${errors.email ? 'is-invalid' : ''}`}
+                      id="email"
+                      value={email}
                       onChange={(e) => {
-                        setIdentifier(e.target.value);
-                        if (errors.identifier) setErrors({});
+                        setEmail(e.target.value);
+                        if (errors.email) setErrors({});
                       }}
-                      placeholder="89111234567 или user@user.ru"
+                      placeholder="user@user.ru"
                       required
                       disabled={loading}
                     />
                   </div>
-                  {errors.identifier && (
+                  {errors.email && (
                     <div className="invalid-feedback d-block">
-                      {errors.identifier[0]}
+                      {errors.email[0]}
                     </div>
                   )}
                 </div>
@@ -214,17 +219,6 @@ function LoginPage() {
                   )}
                 </div>
 
-                <div className="mb-4 form-check">
-                  <input
-                    type="checkbox"
-                    className="form-check-input"
-                    id="remember"
-                  />
-                  <label className="form-check-label" htmlFor="remember">
-                    Запомнить меня
-                  </label>
-                </div>
-
                 <div className="d-grid mb-4">
                   <button
                     type="submit"
@@ -248,14 +242,10 @@ function LoginPage() {
                 <div className="text-center">
                   <p className="mb-2">
                     Нет аккаунта?{' '}
-                    <a href="/register.html" className="text-decoration-none fw-semibold">
+                    <a href="/register" className="text-decoration-none fw-semibold">
                       Зарегистрируйтесь
                     </a>
                   </p>
-                  <a href="#" className="text-decoration-none small text-muted">
-                    <i className="bi bi-question-circle me-1"></i>
-                    Забыли пароль?
-                  </a>
                 </div>
               </form>
             </div>

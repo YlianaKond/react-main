@@ -1,55 +1,94 @@
-export const API_BASE_URL = 'https://pets.сделай.site/api';
-export const BASE_URL = 'https://pets.сделай.site';
+// src/utils/api.js
+const API_BASE_URL = 'https://pets.сделай.site/api';
 
-export const apiRequest = async (endpoint, options = {}) =>{
+// Упрощенная функция для API запросов
+export const apiRequest = async (endpoint, options = {}) => {
   const token = localStorage.getItem('auth_token');
   
-  const defaultHeaders = {
+  const headers = {
     'Accept': 'application/json',
-    'Content-Type': 'application/json',
+    ...options.headers,
   };
   
-  if (token) {
-    defaultHeaders['Authorization'] = `Bearer ${token}`;
+  if (token && !headers['Authorization']) {
+    headers['Authorization'] = `Bearer ${token}`;
   }
   
-  const config = {
-    ...options,
-    headers: {
-      ...defaultHeaders,
-      ...options.headers,
-    },
-  };
+  if (!(options.body instanceof FormData) && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
   
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+    console.log(`Запрос ${endpoint}`);
     
-    // Проверяем статус ответа
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers,
+    });
+    
+    console.log(`Статус ответа ${endpoint}:`, response.status);
+    
     if (response.status === 204) {
-      return { success: true };
+      return { success: true, status: 204 };
     }
     
-    const data = await response.json();
+    const text = await response.text();
+    let data = {};
+    
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.warn('Ошибка парсинга JSON для', endpoint, ':', e);
+      }
+    }
     
     if (response.ok) {
       return data;
     } else {
-      // Обработка ошибок
+      console.error(`Ошибка ${response.status} для ${endpoint}:`, data);
+      
       if (response.status === 401) {
-        // Не авторизован
         localStorage.removeItem('auth_token');
-        localStorage.removeItem('user_email');
-        window.location.href = '/login.html';
+        localStorage.removeItem('user_data');
+        
+        // Перенаправляем на страницу входа только если мы не на ней
+        if (!window.location.pathname.includes('login')) {
+          window.location.href = '/login';
+        }
       }
       
       throw {
         status: response.status,
+        data: data,
         message: data.error?.message || 'Ошибка запроса',
         errors: data.error?.errors || {},
       };
     }
   } catch (error) {
-    console.error('API Request Error:', error);
+    console.error(`Ошибка сети для ${endpoint}:`, error);
     throw error;
+  }
+};
+
+// Функция для получения списка пользователей
+export const getUsersList = async () => {
+  try {
+    const response = await apiRequest('/users');
+    return response.data?.users || [];
+  } catch (error) {
+    console.error('Ошибка получения списка пользователей:', error);
+    return [];
+  }
+};
+
+// Функция для поиска пользователя по email
+export const findUserByEmail = async (email) => {
+  try {
+    const users = await getUsersList();
+    return users.find(user => user.email === email);
+  } catch (error) {
+    console.error('Ошибка поиска пользователя:', error);
+    return null;
   }
 };

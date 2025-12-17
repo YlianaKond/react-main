@@ -1,5 +1,7 @@
+// src/pages/RegisterPage.jsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { saveUserData } from "../utils/auth";
 import "../components/css/style.css";
 
 function RegisterPage() {
@@ -15,9 +17,6 @@ function RegisterPage() {
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
     const navigate = useNavigate();
-    
-    // ПРАВИЛЬНЫЙ URL API
-    const API_BASE_URL = 'https://pets.сделай.site/api';
 
     const handleInputChange = (e) => {
         const { name, value, type, checked } = e.target;
@@ -30,26 +29,31 @@ function RegisterPage() {
         }
     };
 
-    // Валидация на клиенте
     const validateForm = () => {
         const newErrors = {};
 
-        // Валидация имени (кириллица, пробел, дефис)
+        // Валидация имени
         const nameRegex = /^[А-Яа-яЁё\s\-]+$/;
-        if (!nameRegex.test(formData.name.trim())) {
+        if (!formData.name.trim()) {
+            newErrors.name = ['Имя обязательно'];
+        } else if (!nameRegex.test(formData.name.trim())) {
             newErrors.name = ['Только кириллические буквы, пробелы и дефисы'];
         }
 
-        // Валидация телефона (только цифры и +)
+        // Валидация телефона
         const phoneRegex = /^\+?[0-9]+$/;
         const cleanPhone = formData.phone.replace(/[^\d+]/g, '');
-        if (!phoneRegex.test(cleanPhone)) {
+        if (!formData.phone.trim()) {
+            newErrors.phone = ['Телефон обязателен'];
+        } else if (!phoneRegex.test(cleanPhone)) {
             newErrors.phone = ['Только цифры и знак +'];
         }
 
         // Валидация email
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(formData.email)) {
+        if (!formData.email.trim()) {
+            newErrors.email = ['Email обязателен'];
+        } else if (!emailRegex.test(formData.email)) {
             newErrors.email = ['Некорректный email'];
         }
 
@@ -59,12 +63,16 @@ function RegisterPage() {
         const hasNumbers = /\d/.test(formData.password);
         const hasMinLength = formData.password.length >= 7;
         
-        if (!hasMinLength || !hasUpperCase || !hasLowerCase || !hasNumbers) {
+        if (!formData.password) {
+            newErrors.password = ['Пароль обязателен'];
+        } else if (!hasMinLength || !hasUpperCase || !hasLowerCase || !hasNumbers) {
             newErrors.password = ['Минимум 7 символов, 1 цифра, 1 заглавная и 1 строчная буква'];
         }
 
         // Подтверждение пароля
-        if (formData.password !== formData.password_confirmation) {
+        if (!formData.password_confirmation) {
+            newErrors.password_confirmation = ['Подтверждение пароля обязательно'];
+        } else if (formData.password !== formData.password_confirmation) {
             newErrors.password_confirmation = ['Пароли не совпадают'];
         }
 
@@ -77,96 +85,168 @@ function RegisterPage() {
     };
 
     const handleSubmit = async (e) => {
-        e.preventDefault();
-        
-        console.log('Отправка данных регистрации...');
-        
-        // Сначала клиентская валидация
-        const validationErrors = validateForm();
-        if (Object.keys(validationErrors).length > 0) {
-            console.log('Ошибки валидации:', validationErrors);
-            setErrors(validationErrors);
-            return;
-        }
+    e.preventDefault();
+    
+    // Сначала клиентская валидация
+    const validationErrors = validateForm();
+    if (Object.keys(validationErrors).length > 0) {
+        setErrors(validationErrors);
+        return;
+    }
 
-        setLoading(true);
-        setErrors({});
+    setLoading(true);
+    setErrors({});
 
-        try {
-            // Подготовка данных для отправки
-            const dataToSend = {
-                name: formData.name.trim(),
-                phone: formData.phone.replace(/[^\d+]/g, ''),
-                email: formData.email.trim(),
-                password: formData.password,
-                password_confirmation: formData.password_confirmation,
-                confirm: formData.confirm ? 1 : 0
+    try {
+        // Подготовка данных для отправки
+        const dataToSend = {
+            name: formData.name.trim(),
+            phone: formData.phone.replace(/[^\d+]/g, ''),
+            email: formData.email.trim(),
+            password: formData.password,
+            password_confirmation: formData.password_confirmation,
+            confirm: formData.confirm ? 1 : 0
+        };
+
+        console.log('Отправка данных регистрации:', dataToSend);
+
+        const response = await fetch('https://pets.сделай.site/api/register', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify(dataToSend)
+        });
+
+        console.log('Статус ответа:', response.status);
+
+        if (response.status === 204) {
+            console.log('Регистрация успешна!');
+            
+            // 1. Сразу сохраняем базовые данные
+            const initialUserData = {
+                name: dataToSend.name,
+                phone: dataToSend.phone,
+                email: dataToSend.email,
+                // Пока нет ID, будет получен при входе
             };
-
-            console.log('Отправка данных:', dataToSend);
-
-            // Используем прямой fetch
-            const response = await fetch(`${API_BASE_URL}/register`, {
-                method: 'POST',
-                headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(dataToSend)
-            });
-
-            console.log('Статус ответа:', response.status);
             
-            const responseText = await response.text();
-            console.log('Текст ответа:', responseText);
-            
-            let data = {};
+            // 2. Автоматически входим после регистрации
             try {
-                if (responseText) {
-                    data = JSON.parse(responseText);
-                    console.log('Парсинг JSON успешен:', data);
-                }
-            } catch (jsonError) {
-                console.log('Ошибка парсинга JSON:', jsonError);
-            }
+                const loginResponse = await fetch('https://pets.сделай.site/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        email: dataToSend.email,
+                        password: dataToSend.password
+                    })
+                });
 
-            if (response.ok || response.status === 204) {
-                console.log('Регистрация успешна!');
+                if (loginResponse.ok) {
+                    const loginData = await loginResponse.json();
+                    const token = loginData.data?.token || loginData.token;
+                    
+                    if (token) {
+                        console.log('Автовход успешен, токен:', token);
+                        
+                        // Пробуем получить ID пользователя
+                        let userId = null;
+                        
+                        try {
+                            // Способ 1: Ищем в ответе на логин
+                            if (loginData.data?.user?.id) {
+                                userId = loginData.data.user.id;
+                            } else if (loginData.user?.id) {
+                                userId = loginData.user.id;
+                            } else if (loginData.data?.id) {
+                                userId = loginData.data.id;
+                            } else if (loginData.id) {
+                                userId = loginData.id;
+                            }
+                            
+                            // Способ 2: Если нет в ответе, пробуем получить через /users
+                            if (!userId) {
+                                const usersResponse = await fetch('https://pets.сделай.site/api/users', {
+                                    headers: {
+                                        'Authorization': `Bearer ${token}`,
+                                        'Accept': 'application/json'
+                                    }
+                                });
+                                
+                                if (usersResponse.ok) {
+                                    const usersData = await usersResponse.json();
+                                    if (usersData.data?.users) {
+                                        const users = Array.isArray(usersData.data.users) ? usersData.data.users : [];
+                                        const currentUser = users.find(user => user.email === dataToSend.email);
+                                        if (currentUser?.id) {
+                                            userId = currentUser.id;
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (idError) {
+                            console.log('Не удалось получить ID пользователя:', idError);
+                        }
+                        
+                        // Сохраняем данные пользователя
+                        const userDataToSave = {
+                            token: token,
+                            email: dataToSend.email,
+                            name: dataToSend.name,
+                            phone: dataToSend.phone,
+                            id: userId // Может быть null, если не удалось получить
+                        };
+                        
+                        saveUserData(userDataToSave);
+                        
+                        console.log('Данные сохранены:', userDataToSave);
+                        
+                        setSuccess(true);
+                        
+                        // Перенаправляем в профиль
+                        setTimeout(() => {
+                            navigate('/profile.html');
+                        }, 1500);
+                    }
+                } else {
+                    // Если авто-логин не удался, все равно считаем регистрацию успешной
+                    console.log('Автовход не удался, но регистрация прошла успешно');
+                    setSuccess(true);
+                    setTimeout(() => {
+                        navigate('/login.html');
+                    }, 1500);
+                }
+            } catch (loginError) {
+                console.error('Auto login error:', loginError);
                 setSuccess(true);
-                
-                // Автоматический вход после регистрации
                 setTimeout(() => {
                     navigate('/login.html');
-                }, 2000);
-
-            } else if (response.status === 422) {
-                console.log('Ошибка валидации:', data);
-                // Обработка ошибок от сервера
-                if (data.error?.errors) {
-                    setErrors(data.error.errors);
-                } else if (data.errors) {
-                    setErrors(data.errors);
-                } else {
-                    setErrors({ 
-                        general: ['Ошибка валидации данных'] 
-                    });
-                }
-            } else {
-                console.log('Другая ошибка:', data);
-                setErrors({ 
-                    general: [data.message || `Ошибка ${response.status}. Попробуйте позже.`] 
-                });
+                }, 1500);
             }
-            
-        } catch (error) {
-            console.error('Registration error:', error);
+        } else if (response.status === 422) {
+            const errorData = await response.json();
+            console.log('Ошибки валидации:', errorData);
+            setErrors(errorData.errors || errorData.error?.errors || {});
+        } else {
+            const errorText = await response.text();
+            console.error('Ошибка регистрации:', errorText);
             setErrors({ 
-                general: ['Ошибка сети. Проверьте подключение к интернету.'] 
+                general: ['Ошибка сервера. Попробуйте позже.'] 
             });
-        } finally {
-            setLoading(false);
         }
-    };
+    } catch (error) {
+        console.error('Registration error:', error);
+        setErrors({ 
+            general: ['Ошибка сети. Проверьте подключение к интернету.'] 
+        });
+    } finally {
+        setLoading(false);
+    }
+};
 
     if (success) {
         return (
@@ -182,7 +262,7 @@ function RegisterPage() {
                                     </div>
                                 </div>
                                 <h2 className="card-title fw-bold mb-3">Регистрация успешна!</h2>
-                                <p className="text-muted mb-4">Аккаунт успешно создан. Теперь вы можете войти в систему.</p>
+                                <p className="text-muted mb-4">Выполняется вход в систему...</p>
                                 <div className="spinner-border text-primary" role="status">
                                     <span className="visually-hidden">Перенаправление...</span>
                                 </div>
@@ -212,8 +292,8 @@ function RegisterPage() {
                             {errors.general && (
                                 <div className="alert alert-danger alert-dismissible fade show">
                                     <i className="bi bi-exclamation-triangle me-2"></i>
-                                    {errors.general[0] || errors.general}
-                                    <button type="button" className="btn-close" onClick={() => setErrors({})}></button>
+                                    {Array.isArray(errors.general) ? errors.general[0] : errors.general}
+                                    <button type="button" className="btn-close" onClick={() => setErrors(prev => ({ ...prev, general: undefined }))}></button>
                                 </div>
                             )}
 
@@ -379,10 +459,7 @@ function RegisterPage() {
                                             disabled={loading}
                                         />
                                         <label className="form-check-label" htmlFor="confirm">
-                                            Я согласен(а) с{' '}
-                                            <a href="#" className="text-decoration-none">правилами использования сервиса</a>{' '}
-                                            и{' '}
-                                            <a href="#" className="text-decoration-none">политикой конфиденциальности</a> *
+                                            Я согласен(а) на обработку персональных данных *
                                         </label>
                                         {errors.confirm && (
                                             <div className="invalid-feedback d-block">
