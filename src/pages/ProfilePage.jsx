@@ -13,7 +13,7 @@ function ProfilePage() {
               <p className="lead mb-0">Управляйте вашими данными и объявлениями</p>
             </div>
             <div className="col-md-4 text-end">
-              <a href="/add-pet.html" className="btn btn-light btn-lg">
+              <a href="/add-pet" className="btn btn-light btn-lg">
                 <i className="bi bi-plus-circle me-2"></i>
                 Добавить объявление
               </a>

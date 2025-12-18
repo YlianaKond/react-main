@@ -71,7 +71,7 @@ function Header() {
                 <div className="container">
                     <Link className="navbar-brand" to="/">
                         <i className="bi bi-heart-fill text-danger me-2"></i>
-                        <span className="fw-bold">Найди Питомца</span>
+                        <span className="fw-bold">Любимые питомцы</span>
                     </Link>
                     
                     <button className="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">

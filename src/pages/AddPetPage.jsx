@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { saveUserData } from "../utils/auth";
+import { saveUserData, isAuthenticated } from "../utils/auth"; // Добавлен isAuthenticated
 import '../components/css/style.css';
 
 function AddPetPage() {
@@ -298,12 +299,15 @@ function AddPetPage() {
                 
                 if (token) {
                     // Сохраняем данные пользователя
-                    saveUserData({
+                    const userDataToSave = {
                         token: token,
                         email: formData.email.trim(),
                         name: formData.name.trim(),
-                        phone: formData.phone.replace(/[^\d+]/g, '')
-                    });
+                        phone: formData.phone.replace(/[^\d+]/g, ''),
+                        registrationDate: new Date().toISOString().split('T')[0]
+                    };
+                    
+                    saveUserData(userDataToSave);
                     
                     setIsAuthenticated(true);
                     setUserEmail(formData.email.trim());
@@ -376,6 +380,16 @@ function AddPetPage() {
 
             if (response.ok) {
                 console.log('Объявление успешно добавлено!');
+                
+                // Увеличиваем счетчик объявлений
+                const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
+                const updatedData = {
+                    ...userData,
+                    petsCount: (userData.petsCount || 0) + 1,
+                    ordersCount: (userData.ordersCount || 0) + 1
+                };
+                localStorage.setItem('user_data', JSON.stringify(updatedData));
+                
                 setSuccess(true);
                 // Перенаправляем после успешного добавления
                 setTimeout(() => {
